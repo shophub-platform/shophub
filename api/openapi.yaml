@@ -1,0 +1,210 @@
+openapi: 3.0.3
+info:
+  title: ShopHub API
+  description: >
+    API for the ShopHub platform — manages user accounts and shop sites that
+    are deployed into a Kubernetes cluster via the Shop operator.
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: health
+  - name: auth
+  - name: shops
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Register a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: User already exists
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+
+  /shops:
+    get:
+      tags: [shops]
+      summary: List the user's shop sites
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of shops
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Shop'
+    post:
+      tags: [shops]
+      summary: Create a shop site (triggers deployment via the Shop CRD)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopCreateRequest'
+      responses:
+        '201':
+          description: Shop created and deployment started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shop'
+
+  /shops/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [shops]
+      summary: Get shop details
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Shop
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shop'
+        '404':
+          description: Not found
+    put:
+      tags: [shops]
+      summary: Update shop configuration (availability, wallet, database)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShopCreateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shop'
+    delete:
+      tags: [shops]
+      summary: Delete a shop (removes its deployment)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204':
+          description: Deleted
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+        service: { type: string, example: shophub }
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string }
+        expiresAt: { type: string, format: date-time }
+
+    ShopCreateRequest:
+      type: object
+      required: [name, availability, walletAddress, database]
+      properties:
+        name:
+          type: string
+          example: clothing-shop
+        availability:
+          type: string
+          enum: [standard, high]
+          description: standard = 2 replicas, high = 3 replicas
+        walletAddress:
+          type: string
+          description: Wallet address that receives the payments
+        database:
+          type: string
+          enum: [standard, light]
+          description: standard = PostgreSQL (CNPG), light = Redis/alternative
+
+    Shop:
+      allOf:
+        - $ref: '#/components/schemas/ShopCreateRequest'
+        - type: object
+          properties:
+            id: { type: string }
+            url: { type: string, format: uri }
+            status:
+              type: string
+              enum: [pending, deploying, running, error]
+            createdAt: { type: string, format: date-time }
