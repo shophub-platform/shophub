@@ -64,6 +64,15 @@ func (h *AuthHandler) issueTokens(u models.User) (*tokenResponse, error) {
 	return &tokenResponse{AccessToken: access, RefreshToken: refresh, TokenType: "Bearer"}, nil
 }
 
+// handleRegister godoc
+// @Summary  Registracija novog korisnika
+// @Tags     auth
+// @Accept   json
+// @Produce  json
+// @Param    body body registerRequest true "Podaci za registraciju"
+// @Success  201 {object} tokenResponse
+// @Failure  409 {object} map[string]string
+// @Router   /api/v1/auth/register [post]
 func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -74,7 +83,6 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "email, displayName i lozinka (min 8 karaktera) su obavezni")
 		return
 	}
-
 	var existing models.User
 	err := h.DB.Where("email = ?", req.Email).First(&existing).Error
 	if err == nil {
@@ -85,19 +93,16 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "greška baze")
 		return
 	}
-
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da heširam lozinku")
 		return
 	}
-
 	user := models.User{Email: req.Email, PasswordHash: hash, DisplayName: req.DisplayName}
 	if err := h.DB.Create(&user).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da kreiram korisnika")
 		return
 	}
-
 	tokens, err := h.issueTokens(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da izdam tokene")
@@ -106,13 +111,21 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, tokens)
 }
 
+// handleLogin godoc
+// @Summary  Login (vraća JWT access + refresh token)
+// @Tags     auth
+// @Accept   json
+// @Produce  json
+// @Param    body body loginRequest true "Kredencijali"
+// @Success  200 {object} tokenResponse
+// @Failure  401 {object} map[string]string
+// @Router   /api/v1/auth/login [post]
 func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "nevalidan JSON")
 		return
 	}
-
 	var user models.User
 	if err := h.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
 		writeError(w, http.StatusUnauthorized, "nevalidni kredencijali")
@@ -122,7 +135,6 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "nevalidni kredencijali")
 		return
 	}
-
 	tokens, err := h.issueTokens(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da izdam tokene")
@@ -131,19 +143,26 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tokens)
 }
 
+// handleRefresh godoc
+// @Summary  Obnova access token-a pomoću refresh token-a
+// @Tags     auth
+// @Accept   json
+// @Produce  json
+// @Param    body body refreshRequest true "Refresh token"
+// @Success  200 {object} tokenResponse
+// @Failure  401 {object} map[string]string
+// @Router   /api/v1/auth/refresh [post]
 func (h *AuthHandler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "nevalidan JSON")
 		return
 	}
-
 	claims, err := h.Tokens.Parse(req.RefreshToken, auth.RefreshToken)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "nevalidan refresh token")
 		return
 	}
-
 	var user models.User
 	if err := h.DB.First(&user, "id = ?", claims.UserID).Error; err != nil {
 		writeError(w, http.StatusUnauthorized, "korisnik nije pronađen")
@@ -154,7 +173,6 @@ func (h *AuthHandler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "refresh token je poništen")
 		return
 	}
-
 	tokens, err := h.issueTokens(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da izdam tokene")

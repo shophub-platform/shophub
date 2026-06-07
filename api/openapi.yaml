@@ -3,7 +3,7 @@ info:
   title: ShopHub API
   description: >
     API for the ShopHub platform — manages user accounts and shop sites that
-    are deployed into a Kubernetes cluster via the Shop operator.
+    are deployed into a Kubernetes cluster via the Shop operator (Shop CRD).
   version: 0.1.0
 
 servers:
@@ -25,10 +25,9 @@ paths:
           description: Service is alive
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Health'
+              schema: { $ref: '#/components/schemas/Health' }
 
-  /auth/register:
+  /api/v1/auth/register:
     post:
       tags: [auth]
       summary: Register a user
@@ -36,19 +35,17 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterRequest'
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
       responses:
         '201':
-          description: User created
+          description: User created, returns token pair
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
+              schema: { $ref: '#/components/schemas/TokenResponse' }
         '409':
-          description: User already exists
+          description: Email already registered
 
-  /auth/login:
+  /api/v1/auth/login:
     post:
       tags: [auth]
       summary: Log in a user
@@ -56,22 +53,38 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/LoginRequest'
+            schema: { $ref: '#/components/schemas/LoginRequest' }
       responses:
         '200':
-          description: Successful login
+          description: Successful login, returns token pair
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
+              schema: { $ref: '#/components/schemas/TokenResponse' }
         '401':
           description: Invalid credentials
 
-  /shops:
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Exchange a refresh token for a new token pair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401':
+          description: Invalid or revoked refresh token
+
+  /api/v1/shops:
     get:
       tags: [shops]
-      summary: List the user's shop sites
+      summary: List the user's shops
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -80,46 +93,40 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: '#/components/schemas/Shop'
+                items: { $ref: '#/components/schemas/Shop' }
     post:
       tags: [shops]
-      summary: Create a shop site (triggers deployment via the Shop CRD)
+      summary: Create a shop (writes a Shop CR + DB metadata)
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/ShopCreateRequest'
+            schema: { $ref: '#/components/schemas/ShopCreateRequest' }
       responses:
         '201':
-          description: Shop created and deployment started
+          description: Shop created and provisioning started
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Shop'
+              schema: { $ref: '#/components/schemas/Shop' }
+        '400':
+          description: Validation error
 
-  /shops/{id}:
+  /api/v1/shops/{id}:
     parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [shops]
-      summary: Get shop details
+      summary: Get shop details (status read from the CR phase)
       security: [{ bearerAuth: [] }]
       responses:
         '200':
           description: Shop
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Shop'
-        '404':
-          description: Not found
-    put:
+              schema: { $ref: '#/components/schemas/Shop' }
+        '404': { description: Not found }
+    patch:
       tags: [shops]
       summary: Update shop configuration (availability, wallet, database)
       security: [{ bearerAuth: [] }]
@@ -127,22 +134,39 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/ShopCreateRequest'
+            schema: { $ref: '#/components/schemas/ShopUpdateRequest' }
       responses:
         '200':
           description: Updated
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/Shop'
+              schema: { $ref: '#/components/schemas/Shop' }
+        '404': { description: Not found }
     delete:
       tags: [shops]
-      summary: Delete a shop (removes its deployment)
+      summary: Delete a shop (operator cleans up resources)
       security: [{ bearerAuth: [] }]
       responses:
-        '204':
-          description: Deleted
+        '204': { description: Deleted }
+        '404': { description: Not found }
+
+  /api/v1/shops/{id}/url:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [shops]
+      summary: Get the public URL of a shop
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Public URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string, format: uri }
+        '404': { description: Not found }
 
 components:
   securitySchemes:
@@ -160,10 +184,11 @@ components:
 
     RegisterRequest:
       type: object
-      required: [email, password]
+      required: [email, password, displayName]
       properties:
         email: { type: string, format: email }
         password: { type: string, format: password, minLength: 8 }
+        displayName: { type: string }
 
     LoginRequest:
       type: object
@@ -172,39 +197,61 @@ components:
         email: { type: string, format: email }
         password: { type: string, format: password }
 
-    AuthResponse:
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+
+    TokenResponse:
       type: object
       properties:
-        token: { type: string }
-        expiresAt: { type: string, format: date-time }
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        tokenType: { type: string, example: Bearer }
 
     ShopCreateRequest:
       type: object
-      required: [name, availability, walletAddress, database]
+      required: [name, walletAddress]
       properties:
-        name:
-          type: string
-          example: clothing-shop
+        name: { type: string, example: moja-radnja }
         availability:
           type: string
           enum: [standard, high]
+          default: standard
           description: standard = 2 replicas, high = 3 replicas
         walletAddress:
           type: string
-          description: Wallet address that receives the payments
-        database:
+          description: Wallet address that receives payments
+        databaseType:
           type: string
-          enum: [standard, light]
-          description: standard = PostgreSQL (CNPG), light = Redis/alternative
+          enum: [postgres, redis]
+          default: postgres
+        image:
+          type: string
+          description: Optional container image; defaults to the platform image
+
+    ShopUpdateRequest:
+      type: object
+      description: Partial update; omitted fields are unchanged.
+      properties:
+        availability: { type: string, enum: [standard, high] }
+        walletAddress: { type: string }
+        databaseType: { type: string, enum: [postgres, redis] }
 
     Shop:
-      allOf:
-        - $ref: '#/components/schemas/ShopCreateRequest'
-        - type: object
-          properties:
-            id: { type: string }
-            url: { type: string, format: uri }
-            status:
-              type: string
-              enum: [pending, deploying, running, error]
-            createdAt: { type: string, format: date-time }
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        availability: { type: string, enum: [standard, high] }
+        walletAddress: { type: string }
+        databaseType: { type: string, enum: [postgres, redis] }
+        image: { type: string }
+        status:
+          type: string
+          enum: [pending, deploying, running, error]
+          description: Derived from the Shop CR .status.phase
+        url: { type: string, format: uri }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
