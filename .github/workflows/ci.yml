@@ -4,9 +4,14 @@ on:
   pull_request:
   push:
     branches: [main, develop]
+    tags: ['v*']
 
 permissions:
   contents: read
+
+env:
+  IMAGE: ghcr.io/shophub-platform/shophub
+  VERSION: v0.1.0
 
 jobs:
   commitlint:
@@ -19,34 +24,83 @@ jobs:
       - uses: wagoid/commitlint-github-action@v6
 
   build-test:
-    name: Lint / Test / Build (Go)
+    name: Lint / Unit test / Build (Go)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Detect Go module
-        id: detect
-        run: |
-          if [ -f go.mod ]; then echo "go=true" >> "$GITHUB_OUTPUT"; else echo "go=false" >> "$GITHUB_OUTPUT"; fi
-
       - uses: actions/setup-go@v5
-        if: steps.detect.outputs.go == 'true'
         with:
           go-version: '1.22'
           cache: true
 
+      - name: Download deps
+        run: go mod download
+
       - name: Lint (go vet)
-        if: steps.detect.outputs.go == 'true'
         run: go vet ./...
 
-      - name: Test
-        if: steps.detect.outputs.go == 'true'
+      - name: Unit tests
         run: go test ./... -count=1
 
       - name: Build
-        if: steps.detect.outputs.go == 'true'
         run: go build ./...
 
-      - name: Skeleton (no code yet)
-        if: steps.detect.outputs.go != 'true'
-        run: echo "go.mod još ne postoji — skeleton pipeline prolazi (F0)."
+  integration:
+    name: Integration tests + coverage gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install envtest assets
+        run: |
+          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.18
+          echo "KUBEBUILDER_ASSETS=$(setup-envtest use -p path 1.30.0)" >> "$GITHUB_ENV"
+
+      - name: Run all tests with coverage (Docker available for Testcontainers)
+        run: |
+          go test -tags=integration -count=1 \
+            -coverpkg=./internal/...,./pkg/... \
+            -coverprofile=cover.out ./...
+
+      - name: Enforce coverage >= 60%
+        run: |
+          go tool cover -func=cover.out | tail -1
+          pct=$(go tool cover -func=cover.out | awk '/^total:/ {print substr($3,1,length($3)-1)}')
+          echo "Total coverage: ${pct}%"
+          awk "BEGIN{ if (${pct}+0 < 60) { print \"coverage ${pct}% < 60%\"; exit 1 } }"
+
+  docker:
+    name: Build & tag Docker image (v0.1.0)
+    runs-on: ubuntu-latest
+    needs: [build-test]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg VERSION=${VERSION} \
+            -t ${IMAGE}:${VERSION} \
+            -t ${IMAGE}:latest \
+            .
+
+      - name: Log in to GHCR (only on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image (only on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          docker push ${IMAGE}:${VERSION}
+          docker push ${IMAGE}:latest

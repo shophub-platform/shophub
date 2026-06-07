@@ -64,6 +64,15 @@ func (h *AuthHandler) issueTokens(u models.User) (*tokenResponse, error) {
 	return &tokenResponse{AccessToken: access, RefreshToken: refresh, TokenType: "Bearer"}, nil
 }
 
+// handleRegister godoc
+// @Summary  Registracija novog korisnika
+// @Tags     auth
+// @Accept   json
+// @Produce  json
+// @Param    body body registerRequest true "Podaci za registraciju"
+// @Success  201 {object} tokenResponse
+// @Failure  409 {object} map[string]string
+// @Router   /api/v1/auth/register [post]
 func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -106,6 +115,15 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, tokens)
 }
 
+// handleLogin godoc
+// @Summary  Login (vraća JWT access + refresh token)
+// @Tags     auth
+// @Accept   json
+// @Produce  json
+// @Param    body body loginRequest true "Kredencijali"
+// @Success  200 {object} tokenResponse
+// @Failure  401 {object} map[string]string
+// @Router   /api/v1/auth/login [post]
 func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -131,6 +149,15 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tokens)
 }
 
+// handleRefresh godoc
+// @Summary  Obnova access token-a pomoću refresh token-a
+// @Tags     auth
+// @Accept   json
+// @Produce  json
+// @Param    body body refreshRequest true "Refresh token"
+// @Success  200 {object} tokenResponse
+// @Failure  401 {object} map[string]string
+// @Router   /api/v1/auth/refresh [post]
 func (h *AuthHandler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

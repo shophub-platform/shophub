@@ -15,7 +15,13 @@ const (
 	ctxEmail  ctxKey = "email"
 )
 
-func RequireAuth(tm *auth.TokenManager, next http.HandlerFunc) http.HandlerFunc {
+// authTokenManager je minimalni interfejs koji RequireAuth zahteva.
+// *auth.TokenManager ga zadovoljava, a u testovima se lako mock-uje.
+type authTokenManager interface {
+	Parse(tokenString string, expected auth.TokenType) (*auth.Claims, error)
+}
+
+func RequireAuth(tm authTokenManager, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
