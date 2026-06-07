@@ -12,8 +12,6 @@ require (
 	gorm.io/gorm v1.25.10
 )
 
-// FZ 2: client-go + testovi (Testcontainers, envtest). Pokreni `go mod tidy`
-// da se preuzmu i upišu u go.sum (zahteva mrežu).
 require (
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/stretchr/testify v1.9.0

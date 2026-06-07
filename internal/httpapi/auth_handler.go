@@ -83,7 +83,6 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "email, displayName i lozinka (min 8 karaktera) su obavezni")
 		return
 	}
-
 	var existing models.User
 	err := h.DB.Where("email = ?", req.Email).First(&existing).Error
 	if err == nil {
@@ -94,19 +93,16 @@ func (h *AuthHandler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "greška baze")
 		return
 	}
-
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da heširam lozinku")
 		return
 	}
-
 	user := models.User{Email: req.Email, PasswordHash: hash, DisplayName: req.DisplayName}
 	if err := h.DB.Create(&user).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da kreiram korisnika")
 		return
 	}
-
 	tokens, err := h.issueTokens(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da izdam tokene")
@@ -130,7 +126,6 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "nevalidan JSON")
 		return
 	}
-
 	var user models.User
 	if err := h.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
 		writeError(w, http.StatusUnauthorized, "nevalidni kredencijali")
@@ -140,7 +135,6 @@ func (h *AuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "nevalidni kredencijali")
 		return
 	}
-
 	tokens, err := h.issueTokens(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da izdam tokene")
@@ -164,13 +158,11 @@ func (h *AuthHandler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "nevalidan JSON")
 		return
 	}
-
 	claims, err := h.Tokens.Parse(req.RefreshToken, auth.RefreshToken)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "nevalidan refresh token")
 		return
 	}
-
 	var user models.User
 	if err := h.DB.First(&user, "id = ?", claims.UserID).Error; err != nil {
 		writeError(w, http.StatusUnauthorized, "korisnik nije pronađen")
@@ -181,7 +173,6 @@ func (h *AuthHandler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "refresh token je poništen")
 		return
 	}
-
 	tokens, err := h.issueTokens(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ne mogu da izdam tokene")
