@@ -1,6 +1,258 @@
+/* ShopHub admin — globalni stilovi i tema (FZ 4, 9.3 theming preko CSS varijabli). */
+@import "@angular/material/prebuilt-themes/indigo-pink.css";
+
 :root {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Brand / tema preko CSS varijabli — lako se override-uje po prodavnici. */
+  --sh-brand-1: #4f46e5; /* indigo */
+  --sh-brand-2: #7c3aed; /* violet */
+  --sh-bg: #eef1f6;
+  --sh-surface: #ffffff;
+  --sh-text: #1f2430;
+  --sh-muted: #6b7280;
+  --sh-border: #e6e8ee;
+  --sh-radius: 16px;
+  --sh-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  --sh-shadow-md: 0 8px 24px rgba(16, 24, 40, 0.12);
+  --sh-shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.18);
+
+  /* Status boje */
+  --sh-status-pending: #6b7280;
+  --sh-status-deploying: #d97706;
+  --sh-status-running: #16a34a;
+  --sh-status-error: #dc2626;
+
+  font-family: Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body {
+  height: 100%;
 }
 body {
   margin: 0;
+  color: var(--sh-text);
+  background:
+    radial-gradient(1200px 600px at 100% -10%, rgba(124, 58, 237, 0.08), transparent 60%),
+    radial-gradient(1000px 500px at -10% 0%, rgba(79, 70, 229, 0.08), transparent 55%),
+    var(--sh-bg);
+  background-attachment: fixed;
 }
+
+/* ---- Layout pomoćne klase ---- */
+.sh-container {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 16px 56px;
+  animation: sh-fade-up 0.3s ease both;
+}
+.sh-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.sh-spacer {
+  flex: 1 1 auto;
+}
+.sh-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 20px;
+}
+.sh-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 60vh;
+}
+.full-width {
+  width: 100%;
+}
+.sh-muted {
+  color: var(--sh-muted);
+}
+
+/* ---- Auth ekrani (login/registracija) ---- */
+.auth-page {
+  min-height: calc(100vh - 64px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(900px 500px at 50% -20%, rgba(124, 58, 237, 0.18), transparent 60%),
+    linear-gradient(160deg, #f7f8fc 0%, #eef1f6 100%);
+}
+.auth-page .mat-mdc-card {
+  animation: sh-pop 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  padding-top: 8px;
+}
+.auth-brand {
+  text-align: center;
+  padding: 20px 16px 4px;
+}
+.auth-brand h2 {
+  margin: 14px 0 2px;
+  font-weight: 600;
+}
+.auth-brand p {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.auth-logo {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--sh-brand-1), var(--sh-brand-2));
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.35);
+}
+.auth-logo mat-icon {
+  font-size: 30px;
+  width: 30px;
+  height: 30px;
+}
+
+/* ---- Animacije ---- */
+@keyframes sh-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sh-pop {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ---- Kartice ---- */
+.mat-mdc-card {
+  border-radius: var(--sh-radius) !important;
+  border: 1px solid var(--sh-border);
+  box-shadow: var(--sh-shadow-sm) !important;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.shop-card {
+  cursor: default;
+}
+.shop-card:hover {
+  box-shadow: var(--sh-shadow-md) !important;
+  transform: translateY(-3px);
+}
+
+/* ---- Buttons ---- */
+.mat-mdc-raised-button,
+.mat-mdc-unelevated-button,
+.mat-mdc-outlined-button,
+.mat-mdc-button {
+  border-radius: 11px !important;
+  letter-spacing: 0.2px;
+  font-weight: 500 !important;
+  height: 42px !important;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.18s ease, filter 0.18s ease !important;
+}
+.mat-mdc-unelevated-button.mat-primary {
+  background-image: linear-gradient(135deg, var(--sh-brand-1), var(--sh-brand-2));
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.28);
+}
+/* Lift on hover for filled / stroked buttons */
+.mat-mdc-unelevated-button:not([disabled]):hover,
+.mat-mdc-raised-button:not([disabled]):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.34);
+}
+.mat-mdc-outlined-button:not([disabled]):hover {
+  transform: translateY(-1px);
+  background: rgba(79, 70, 229, 0.06);
+}
+.mat-mdc-unelevated-button:not([disabled]):active,
+.mat-mdc-raised-button:not([disabled]):active {
+  transform: translateY(0);
+  filter: brightness(0.98);
+}
+.mat-mdc-button:not([disabled]):hover {
+  background: rgba(79, 70, 229, 0.08);
+}
+/* Accessible focus ring */
+.mat-mdc-button-base:focus-visible {
+  outline: 2px solid var(--sh-brand-2);
+  outline-offset: 2px;
+}
+/* Inputs: smooth focus */
+.mat-mdc-form-field .mdc-text-field {
+  border-radius: 10px;
+  transition: box-shadow 0.18s ease;
+}
+
+/* ---- Toolbar (brand) ---- */
+.mat-toolbar.mat-primary {
+  background: linear-gradient(135deg, var(--sh-brand-1), var(--sh-brand-2)) !important;
+  box-shadow: 0 2px 12px rgba(79, 70, 229, 0.25);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* ---- Forme ---- */
+.mat-mdc-form-field {
+  width: 100%;
+}
+
+/* ---- Status čip (moderno: tintovana pozadina + obojen tekst) ---- */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  text-transform: none;
+}
+.status-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+}
+.status-pending { color: var(--sh-status-pending); background: color-mix(in srgb, var(--sh-status-pending) 12%, white); }
+.status-deploying { color: var(--sh-status-deploying); background: color-mix(in srgb, var(--sh-status-deploying) 14%, white); }
+.status-running { color: var(--sh-status-running); background: color-mix(in srgb, var(--sh-status-running) 14%, white); }
+.status-error { color: var(--sh-status-error); background: color-mix(in srgb, var(--sh-status-error) 14%, white); }
+
+/* ---- Toast (MatSnackBar) — smooth, dole na sredini, obojena leva ivica ---- */
+.mat-mdc-snack-bar-container {
+  --mdc-snackbar-container-color: #20232c;
+  --mdc-snackbar-supporting-text-color: #f5f6f8;
+  --mat-snack-bar-button-color: #aab2c5;
+  margin-bottom: 28px !important;
+}
+.mat-mdc-snack-bar-container .mdc-snackbar__surface {
+  border-radius: 14px !important;
+  min-width: 300px;
+  padding-left: 6px;
+  border-left: 4px solid var(--toast-accent, #6366f1);
+  box-shadow: 0 14px 40px rgba(16, 24, 40, 0.4) !important;
+  backdrop-filter: saturate(1.1);
+}
+.mat-mdc-snack-bar-container .mdc-snackbar__label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.toast-success { --toast-accent: #22c55e; }
+.toast-error { --toast-accent: #f43f5e; }
+.toast-info { --toast-accent: #6366f1; }
+
+/* ---- Scrollbar ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c5c9d6 transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #c5c9d6; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: #a9aec0; background-clip: content-box; }
