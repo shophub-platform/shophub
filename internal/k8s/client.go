@@ -33,6 +33,10 @@ const (
 // shopGVR je GroupVersionResource Shop CRD-a (resurs je u množini, malim slovima).
 var shopGVR = schema.GroupVersionResource{Group: crGroup, Version: crVersion, Resource: "shops"}
 
+// walletGVR je GroupVersionResource Wallet CRD-a. ShopHub kreira Wallet uz Shop
+// tako da operator (koji zahteva postojeći Wallet) može odmah da nastavi.
+var walletGVR = schema.GroupVersionResource{Group: crGroup, Version: crVersion, Resource: "wallets"}
+
 // Client je client-go implementacija shops.Orchestrator-a.
 type Client struct {
 	dyn dynamic.Interface
@@ -94,28 +98,74 @@ func desiredObject(r shops.ShopResource) *unstructured.Unstructured {
 	return obj
 }
 
+// desiredWallet sastavlja Wallet CR koji Shop referencira (walletRef). Ako je
+// korisnik unio validnu 0x adresu, ona se postavlja u spec (operator je samo
+// validira); inače operator generiše novi key pair.
+func desiredWallet(r shops.ShopResource) *unstructured.Unstructured {
+	w := &unstructured.Unstructured{}
+	w.SetGroupVersionKind(schema.GroupVersionKind{Group: crGroup, Version: crVersion, Kind: "Wallet"})
+	w.SetName(r.Name + "-wallet")
+	w.SetNamespace(r.Namespace)
+	w.SetLabels(map[string]string{managedByLabel: managedByValue})
+	spec := map[string]interface{}{"network": "sepolia"}
+	if isHexAddress(r.WalletAddress) {
+		spec["address"] = r.WalletAddress
+	}
+	_ = unstructured.SetNestedMap(w.Object, spec, "spec")
+	return w
+}
+
+// isHexAddress proverava format Ethereum adrese (0x + 40 hex znakova).
+func isHexAddress(s string) bool {
+	if len(s) != 42 || s[:2] != "0x" {
+		return false
+	}
+	for _, ch := range s[2:] {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// ensureWallet kreira Wallet CR ako ne postoji (idempotentno).
+func (c *Client) ensureWallet(ctx context.Context, r shops.ShopResource) error {
+	wi := c.dyn.Resource(walletGVR).Namespace(r.Namespace)
+	name := r.Name + "-wallet"
+	if _, err := wi.Get(ctx, name, metav1.GetOptions{}); err == nil {
+		return nil // već postoji
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("čitanje Wallet CR-a %q: %w", name, err)
+	}
+	if _, err := wi.Create(ctx, desiredWallet(r), metav1.CreateOptions{}); err != nil {
+		return fmt.Errorf("kreiranje Wallet CR-a %q: %w", name, err)
+	}
+	return nil
+}
+
 // Apply kreira CR ako ne postoji, u suprotnom ažurira njegov spec/anotacije.
+// Uz Shop CR kreira i pripadajući Wallet CR.
 func (c *Client) Apply(ctx context.Context, r shops.ShopResource) error {
 	ri := c.dyn.Resource(shopGVR).Namespace(r.Namespace)
 	desired := desiredObject(r)
 
 	existing, err := ri.Get(ctx, r.Name, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
+	switch {
+	case apierrors.IsNotFound(err):
 		if _, err := ri.Create(ctx, desired, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("kreiranje Shop CR-a %q: %w", r.Name, err)
 		}
-		return nil
-	}
-	if err != nil {
+	case err != nil:
 		return fmt.Errorf("čitanje Shop CR-a %q: %w", r.Name, err)
+	default:
+		// Zadrži resourceVersion radi optimističkog zaključavanja, prepiši spec/meta.
+		desired.SetResourceVersion(existing.GetResourceVersion())
+		if _, err := ri.Update(ctx, desired, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("ažuriranje Shop CR-a %q: %w", r.Name, err)
+		}
 	}
 
-	// Zadrži resourceVersion radi optimističkog zaključavanja, prepiši spec/meta.
-	desired.SetResourceVersion(existing.GetResourceVersion())
-	if _, err := ri.Update(ctx, desired, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("ažuriranje Shop CR-a %q: %w", r.Name, err)
-	}
-	return nil
+	return c.ensureWallet(ctx, r)
 }
 
 // Status čita .status.phase Shop CR-a.
@@ -128,11 +178,16 @@ func (c *Client) Status(ctx context.Context, namespace, name string) (shops.Reso
 	return shops.ResourceStatus{Phase: phase}, nil
 }
 
-// Delete briše Shop CR; nepostojeći CR se tretira kao uspeh (idempotentno).
+// Delete briše Shop CR i pripadajući Wallet CR; nepostojeći se tretira kao
+// uspeh (idempotentno).
 func (c *Client) Delete(ctx context.Context, namespace, name string) error {
 	err := c.dyn.Resource(shopGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("brisanje Shop CR-a %q: %w", name, err)
+	}
+	werr := c.dyn.Resource(walletGVR).Namespace(namespace).Delete(ctx, name+"-wallet", metav1.DeleteOptions{})
+	if werr != nil && !apierrors.IsNotFound(werr) {
+		return fmt.Errorf("brisanje Wallet CR-a %q: %w", name+"-wallet", werr)
 	}
 	return nil
 }
