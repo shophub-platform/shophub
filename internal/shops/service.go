@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/shophub-platform/shophub/internal/metrics"
 	"github.com/shophub-platform/shophub/internal/models"
 )
 
@@ -228,6 +229,7 @@ func (s *service) Create(ctx context.Context, ownerID uuid.UUID, in CreateInput)
 		_ = s.orch.Delete(ctx, s.nsp, CRName(shop.ID))
 		return nil, err
 	}
+	metrics.ShopsCreatedTotal.Inc()
 	return s.viewFor(ctx, *shop), nil
 }
 
