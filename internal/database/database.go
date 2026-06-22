@@ -8,6 +8,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratepg "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
@@ -16,7 +17,14 @@ import (
 
 // Connect otvara GORM konekciju ka PostgreSQL bazi.
 func Connect(dsn string) (*gorm.DB, error) {
-	return gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Use(otelgorm.NewPlugin()); err != nil {
+		return nil, fmt.Errorf("otelgorm plugin: %w", err)
+	}
+	return db, nil
 }
 
 // Migrate pokreće golang-migrate "up" migracije nad postojećom GORM konekcijom
