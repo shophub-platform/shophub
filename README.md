@@ -1,148 +1,32 @@
 # shophub
 
-ShopHub backend — web aplikacija za upravljanje sajtovima prodavnica.
+ShopHub is the platform's central web application, made up of a front end and a back end. It is the administrative panel through which a user registers, logs in, and manages their shop sites: creating new ones, changing their configuration, and deleting them. The ShopHub back end does not run shops itself. Instead, for every shop it creates a `Shop` (and an associated `Wallet`) custom resource in the Kubernetes cluster. The actual deployment (Deployment, Service, Ingress, database) is handled by `shop-operator`, which reacts to those custom resources. ShopHub tracks a shop's status by reading `.status.phase` from the custom resource and maps it to a status shown to the user, such as pending, deploying, running, or error.
 
-Modul: `github.com/shophub-platform/shophub`
+## Role in the architecture
 
-## Faza F1 — Član 1: Autentifikacija + GORM modeli
+The user creates a shop in the ShopHub UI by setting its name, availability (standard maps to 2 replicas, high maps to 3 replicas), the wallet address that receives payments, and the database type (postgres or redis). The back end writes the shop's metadata into its own PostgreSQL database and, at the same time, creates the `Shop` and `Wallet` custom resources in the cluster through the Kubernetes API using a client-go dynamic client. The user can open their shop's site in a new tab, edit its configuration (availability, wallet address, database), or delete it. Deleting a shop also removes the custom resources, so `shop-operator` cleans up all related Kubernetes resources. If the cluster is not reachable, the back end falls back to a no-op orchestrator: the REST API still works, but no custom resources are created. This is useful for local development without a cluster.
 
-Implementirano u ovoj fazi (spec. 1.1 Prijava i registracija, 1.2 Upravljanje sajtovima):
+## Repository structure
 
-- **JWT auth servis** (`internal/auth`, `internal/httpapi`): registracija, login, refresh
-  (+ logout sa poništavanjem refresh tokena, i `GET /me`). Lozinke su bcrypt-heširane.
-  Access token traje 15 min, refresh 7 dana; refresh token nosi `version` koji se poredi
-  sa `User.RefreshTokenVersion`, pa logout poništava postojeće refresh tokene.
-- **GORM modeli** (`internal/models`): `User` i `Shop` u PostgreSQL bazi
-  (`internal/database`, `AutoMigrate` na startu + `migrations/0001_init.sql`).
+The `cmd/shophub/main.go` file is the entry point of the back end service. `internal/auth/` handles JWT access and refresh tokens and password hashing with bcrypt. `internal/httpapi/` contains HTTP handlers and middleware for auth, shops, and health checks, built on the standard `net/http` router without an external web framework. `internal/shops/` is the service layer and GORM repository for shops, including ownership checks, with `orchestrator_noop.go` as the clusterless fallback. `internal/k8s/` is the client-go orchestrator that creates, updates, and deletes `Shop` and `Wallet` custom resources in the `shop.shophub.io/v1alpha1` group and reads their status. `internal/models/` holds the GORM models for `User` and `Shop`. `internal/database/` manages the connection and migrations using golang-migrate, embedded into the binary through `embed.FS`. `internal/health/` implements liveness and readiness checks. `api/openapi.yaml` is the OpenAPI 3.0 specification of the REST API. `web/` is the front end application, built with Angular 17 and standalone components.
 
-HTTP sloj koristi standardni `net/http` (Go 1.22 routing), bez eksternog framework-a,
-u skladu sa postojećim stilom repozitorijuma.
+## Main features
 
-## Endpoint-i
+The back end REST API, under `/api/v1/...`, provides registration, login, refresh, and logout with JWT and versioned refresh tokens for invalidation, full CRUD over a user's shops at `/api/v1/shops` kept in sync with the `Shop` and `Wallet` custom resources in the cluster, retrieval of a shop's public URL, and health and readiness endpoints.
 
-| Metoda | Putanja | Auth | Opis |
-|--------|---------|------|------|
-| POST | `/api/v1/auth/register` | – | Kreira nalog, vraća par tokena |
-| POST | `/api/v1/auth/login` | – | Autentifikacija, vraća par tokena |
-| POST | `/api/v1/auth/refresh` | – | Razmena refresh tokena za novi par |
-| POST | `/api/v1/auth/logout` | Bearer | Poništava refresh tokene |
-| GET  | `/api/v1/me` | Bearer | Trenutni identitet |
-| GET  | `/api/v1/shops` | Bearer | Lista korisnikovih prodavnica |
-| POST | `/api/v1/shops` | Bearer | Kreira Shop CR + meta-podatke u DB |
-| GET  | `/api/v1/shops/{id}` | Bearer | Detalji + status (čita CR phase) |
-| PATCH | `/api/v1/shops/{id}` | Bearer | Menja availability/wallet/database |
-| DELETE | `/api/v1/shops/{id}` | Bearer | Briše Shop CR + meta-podatke |
-| GET  | `/api/v1/shops/{id}/url` | Bearer | Javni URL prodavnice |
-| GET  | `/healthz`, `/readyz` | – | Health/readiness |
+The front end, under `web/`, provides user registration and login with JWT tokens stored in local storage through `AuthService`, `auth.interceptor.ts`, and `auth.guard.ts`, a dashboard listing all of a user's shops, a wizard for creating a new shop (name, availability, wallet address, database type), a detail and edit view for a single shop that supports changing configuration, deleting the shop, opening its site in a new tab, and showing provisioning status, and state management through NgRx stores for auth, shops, and UI concerns with their associated effects.
 
-## Faza F2 — ShopHub backend + Kubernetes (Shop CR)
+## Technical stack
 
-- **Shops REST sloj** (`internal/shops`, `internal/httpapi`): servisni sloj
-  (`Service`) + GORM repozitorijum (`Repository`) sa proverom vlasništva nad
-  svakim resursom. CRUD nad meta-podacima u PostgreSQL-u i sinhronizacija sa
-  Kubernetes klasterom.
-- **client-go orkestrator** (`internal/k8s`): dinamički klijent kreira/ažurira/
-  briše `Shop` CR-ove (grupa `shop.shophub.io/v1alpha1`) i čita `.status.phase`.
-  Koristi in-cluster config u podu, a kubeconfig lokalno. Status CRD faza se
-  mapira na javni status: `Ready→running`, `Provisioning→deploying`,
-  `Failed→error`, ostalo `pending`.
-- **Bezbedan fallback**: ako klaster nije dostupan, server radi sa no-op
-  orkestratorom (REST API funkcioniše, CR-ovi se ne kreiraju).
-- Ime Shop CR-a je determinističko: `shop-<uuid>`; namespace, podrazumevana
-  slika i URL šablon se konfigurišu env varijablama (vidi `.env.example`).
-- **Migracije**: `golang-migrate` sa SQL fajlovima u `migrations/`
-  (`0001_init.up.sql` / `.down.sql`), ugrađenim u binarni fajl preko `embed.FS`
-  i pokrenutim na startu (`database.Migrate`). CLI alternativa: `make migrate-up`.
-- **API dokumentacija**: `swag` anotacije (`// @...`) u handlerima; OpenAPI se
-  generiše sa `make swagger` (`swag init`) pored ručno održavanog `api/openapi.yaml`.
+The back end is written in Go using the standard `net/http` package without an external framework, GORM with PostgreSQL, golang-jwt, client-go and controller-runtime for talking to the Kubernetes API, golang-migrate for schema migrations, and Testcontainers together with envtest for integration testing. The front end is built with Angular 17 using standalone components and lazy loaded routes, Angular Material, NgRx (store and effects), RxJS, and TypeScript, tested with Playwright for end to end tests and Karma/Jasmine for unit tests. Continuous integration runs on GitHub Actions and includes commitlint for Conventional Commits, Go vet, test, and build, integration tests with Testcontainers and envtest under a coverage gate of at least 60 percent, and building and pushing a Docker image to GHCR when a version tag is created, following Semantic Versioning. In deployment, the application is installed into the cluster through the `shophub` Helm chart from the `helm-charts` repository, and the state of that installation is tracked through the `kube-state` repository via an ArgoCD Application.
 
-## Pokretanje
+## Running locally
 
 ```sh
-docker compose up -d db          # PostgreSQL na :5432
-cp .env.example .env             # podesi JWT_SECRET
-go mod tidy                      # povuče zavisnosti, generiše go.sum
-go run ./cmd/shophub             # AutoMigrate napravi tabele
-```
-
-## Testiranje
-
-### 1. Unit testovi (bez Docker-a i klastera)
-
-```sh
-go mod tidy                       # JEDNOM: povlači client-go, testify, testcontainers...
-go vet ./...
-go test ./... -count=1            # auth, modeli, shops servis (mock), shop handleri (mock)
-```
-
-### 2. Integracioni testovi (zahteva Docker za PostgreSQL Testcontainers)
-
-```sh
-go test -tags=integration ./internal/httpapi/ -run Integration -v
-```
-
-### 3. K8s integracioni test (envtest — in-memory API server)
-
-```sh
-go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.18
-export KUBEBUILDER_ASSETS=$(setup-envtest use -p path 1.30.0)
-go test -tags=integration ./internal/k8s/ -run Envtest -v
-```
-
-### 4. Coverage (DoD: min 60%)
-
-```sh
-go test -tags=integration -coverpkg=./internal/...,./pkg/... \
-  -coverprofile=cover.out ./...
-go tool cover -func=cover.out | tail -1     # prikazuje total %
-go tool cover -html=cover.out               # HTML izveštaj u browseru
-```
-
-## Definition of Done — F2: end-to-end provera
-
-```sh
-# (a) Podigni bazu i (opciono) lokalni klaster sa instaliranim Shop CRD-om.
-docker compose up -d db
-# kind create cluster        # ili minikube/k3d
-# kubectl apply -f ../shop-operator/config/crd/bases/   # instaliraj Shop CRD
-
-cp .env.example .env
+docker compose up -d db          # PostgreSQL on :5432
+cp .env.example .env             # set JWT_SECRET
 go mod tidy
-go run ./cmd/shophub         # AutoMigrate napravi tabele; loguje da li je K8s aktivan
-
-# (b) register -> login -> validan JWT
-curl -s -X POST localhost:8080/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"a@b.com","password":"supersecret","displayName":"Vesna"}'
-
-ACCESS=$(curl -s -X POST localhost:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"a@b.com","password":"supersecret"}' | jq -r .accessToken)
-
-# (c) kreiraj prodavnicu -> Shop CR
-curl -s -X POST localhost:8080/api/v1/shops \
-  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
-  -d '{"name":"moja-radnja","availability":"high","walletAddress":"0xabc","databaseType":"postgres"}'
-
-# (d) Shop CR mora biti vidljiv u klasteru
-kubectl get shops
-
-# lista / detalji / url / brisanje
-curl -s localhost:8080/api/v1/shops -H "Authorization: Bearer $ACCESS"
-curl -s localhost:8080/api/v1/shops/<ID> -H "Authorization: Bearer $ACCESS"
-curl -s localhost:8080/api/v1/shops/<ID>/url -H "Authorization: Bearer $ACCESS"
-curl -s -X PATCH localhost:8080/api/v1/shops/<ID> \
-  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
-  -d '{"availability":"standard"}'
-curl -s -X DELETE localhost:8080/api/v1/shops/<ID> -H "Authorization: Bearer $ACCESS" -i
+go run ./cmd/shophub              # AutoMigrate creates the tables
 ```
 
-## Docker image (CI tag v0.1.0)
-
-```sh
-docker build --build-arg VERSION=v0.1.0 -t ghcr.io/shophub-platform/shophub:v0.1.0 .
-```
-
-CI (`.github/workflows/ci.yml`) ima `build-test` (vet + unit + build),
-`integration` (Testcontainers + envtest + coverage gate ≥60%) i `docker`
-(build + tag `v0.1.0`, push na GHCR pri `v*` tagu).
+For testing, run `go test ./...` for unit tests, `go test -tags=integration ./internal/httpapi/ -run Integration -v` for integration tests (requires Docker), and `go test -tags=integration ./internal/k8s/ -run Envtest -v` for the Kubernetes envtest layer. Detailed commands for coverage and an end to end check (register, log in, create a shop, verify the Shop custom resource in the cluster) can be found in the CI pipeline definition at `.github/workflows/ci.yml`.
